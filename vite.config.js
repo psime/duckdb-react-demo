@@ -7,6 +7,9 @@ export default defineConfig(({ command }) => {
     server: {
       host: true
     },
-    base: command === "build" ? "/duckdb-react-demo/" : "/"
+    preview: {
+      port: 4173
+    },
+    base: command === "build" ? "/duckdb-react-demo/" : "/",
   };
 });
