@@ -10,6 +10,7 @@ export default function App() {
     "SELECT * FROM events LIMIT 1000; -- this limit does not take into account Rows to return setting ",
   );
 
+  const BASE = import.meta.env.BASE_URL;
   const [data, setData] = useState([]);
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(true);
