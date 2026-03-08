@@ -23,7 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 *.sql
-vite.*
 stats.*
 *.duckdb
 doc/*
