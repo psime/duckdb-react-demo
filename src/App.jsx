@@ -19,7 +19,7 @@ export default function App() {
   const [rowLimit, setRowLimit] = useState(1000);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
-  const DEBUG_MODE = false;
+  const DEBUG_MODE = true;
 
   const buttonStyle = {
     margin: "6px",
