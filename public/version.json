@@ -1,4 +1,6 @@
 {
     "wasm": "duckdb-v1.wasm",
-    "events": "events-v1.parquet"
+    "events": "events-v1.parquet",
+    "event_files": "event_files-v1.parquet",
+    "event_url_list": "event_url_list-v1.parquet"
 }
