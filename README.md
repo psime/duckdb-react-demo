@@ -1,3 +1,6 @@
+# Exploring Statsbomb open data
+[statsbomb repo](https://github.com/statsbomb/open-data)
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

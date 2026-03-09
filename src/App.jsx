@@ -39,44 +39,54 @@ export default function App() {
   useEffect(() => {
     async function initDuckDB() {
       try {
-        // Create the DuckDB worker and WASM instance
+        // Fetch versioned asset info
+        const versionRes = await fetch(
+          `${import.meta.env.BASE_URL}version.json`,
+        );
+        const version = await versionRes.json(); // e.g. { wasm: "duckdb-v1.wasm", events: "events-v1.parquet", event_files: "event_files-v1.parquet", event_url_list: "event_url_list-v1.parquet" }
+
         const logger = new duckdb.ConsoleLogger();
         const worker = new Worker(
           `${import.meta.env.BASE_URL}duckdb/duckdb-worker.js`,
           { type: "module" },
         );
         const db = new duckdb.AsyncDuckDB(logger, worker);
-        // await db.instantiate("/duckdb/duckdb.wasm");
-        await db.instantiate(`${import.meta.env.BASE_URL}duckdb/duckdb.wasm`);
-        // Connect to the database
+
+        // Instantiate versioned WASM
+        await db.instantiate(
+          `${import.meta.env.BASE_URL}duckdb/${version.wasm}`,
+        );
+
         const connection = await db.connect();
 
-        // Parquet files to load
-        const files = ["events", "event_files", "event_url_list"];
+        // Map table names to versioned Parquet files
+        const files = {
+          events: version.events,
+          event_files: version.event_files,
+          event_url_list: version.event_url_list,
+        };
 
-        for (const name of files) {
-          // const res = await fetch(`/data/${name}.parquet`);
-          const res = await fetch(
-            `${import.meta.env.BASE_URL}data/${name}.parquet`,
-          );
-          if (!res.ok) throw new Error(`Failed to fetch /data/${name}.parquet`);
+        for (const [name, file] of Object.entries(files)) {
+          const res = await fetch(`${import.meta.env.BASE_URL}data/${file}`);
+          if (!res.ok) throw new Error(`Failed to fetch /data/${file}`);
 
           const buffer = await res.arrayBuffer();
-          const uint8Buffer = new Uint8Array(buffer); // <-- convert to Uint8Array
+          const uint8Buffer = new Uint8Array(buffer);
 
           await db.registerFileBuffer(`${name}.parquet`, uint8Buffer);
 
           await connection.query(`
-            CREATE TABLE ${name} AS SELECT * FROM read_parquet('${name}.parquet')
-          `);
+          CREATE TABLE ${name} AS SELECT * FROM read_parquet('${name}.parquet')
+        `);
         }
 
         setDbConnection(connection);
-
-        const res = await connection.query("SELECT COUNT(*) AS c FROM events");
-
-        setEventCount(res.toArray()[0].c);
         setLoading(false);
+
+        const countRes = await connection.query(
+          "SELECT COUNT(*) AS c FROM events",
+        );
+        setEventCount(countRes.toArray()[0].c);
       } catch (err) {
         console.error("DuckDB init error:", err);
         setLoading(false);
@@ -85,7 +95,6 @@ export default function App() {
 
     initDuckDB();
   }, []);
-
   async function runQuery(sql) {
     if (!dbConnection) return;
 

@@ -1,0 +1,4 @@
+{
+    "wasm": "duckdb-v1.wasm",
+    "events": "events-v1.parquet"
+}
