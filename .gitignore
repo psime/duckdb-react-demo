@@ -28,3 +28,5 @@ stats.*
 *.duckdb
 doc/*
 public/data/json/*
+CLAUDE.md
+*.png

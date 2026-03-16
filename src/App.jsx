@@ -6,6 +6,8 @@ import "tabulator-tables/dist/css/tabulator.min.css";
 
 export default function App() {
   const [dbConnection, setDbConnection] = useState(null);
+  const [db, setDb] = useState(null);
+  const [queryError, setQueryError] = useState(null);
   const [query, setQuery] = useState(
     "SELECT * FROM events LIMIT 1000; -- this limit does not take into account Rows to return setting ",
   );
@@ -18,8 +20,9 @@ export default function App() {
   const [eventCount, setEventCount] = useState(null);
   const [rowLimit, setRowLimit] = useState(1000);
   const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [tableKey, setTableKey] = useState(0);
 
-  const DEBUG_MODE = true;
+  const DEBUG_MODE = false;
 
   const buttonStyle = {
     margin: "6px",
@@ -80,6 +83,24 @@ export default function App() {
         `);
         }
 
+        // Create helper macros available in all user queries.
+        // uri_link(url)     — smart default: prepends https:// unless value already has a protocol
+        // uri_link_raw(url) — no prepend: renders value as a clickable link exactly as typed
+        await connection.query(`
+          CREATE OR REPLACE MACRO uri_link(url) AS
+            '[[LINK]]' || CASE
+              WHEN COALESCE(CAST(url AS VARCHAR), '') LIKE 'http://%'
+                OR COALESCE(CAST(url AS VARCHAR), '') LIKE 'https://%'
+                THEN CAST(url AS VARCHAR)
+              ELSE 'https://' || COALESCE(CAST(url AS VARCHAR), '')
+            END;
+        `);
+        await connection.query(`
+          CREATE OR REPLACE MACRO uri_link_raw(url) AS
+            '[[LINK]]' || COALESCE(CAST(url AS VARCHAR), '');
+        `);
+
+        setDb(db);
         setDbConnection(connection);
         setLoading(false);
 
@@ -98,24 +119,58 @@ export default function App() {
   async function runQuery(sql) {
     if (!dbConnection) return;
 
-    const q = sql || query; // use passed SQL or textarea
+    let q = sql || query;
+    setQueryError(null);
+    setTableKey((k) => k + 1);
+
+    // Fetch any URLs used as FROM file sources via JS (DuckDB WASM can't make HTTP requests directly)
+    // Only matches URLs in FROM clause position, not arbitrary string literals in SELECT/WHERE
+    const urlRegex = /FROM\s+'(https?:\/\/[^']+)'/gi;
+    let match;
+    while ((match = urlRegex.exec(q)) !== null) {
+      const url = match[1];
+      const filename = url.split("/").pop().split("?")[0] || "data.bin";
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+        const buffer = new Uint8Array(await resp.arrayBuffer());
+        await db.registerFileBuffer(filename, buffer);
+        q = q.replace(`'${url}'`, `'${filename}'`);
+      } catch (fetchErr) {
+        setQueryError(`Could not fetch URL: ${url}\n${fetchErr.message}`);
+        return;
+      }
+    }
+
     try {
       const result = await dbConnection.query(q);
       const rows = result.toArray();
       setData(rows);
 
       if (rows.length > 0) {
-        const cols = Object.keys(rows[0]).map((key) => ({
-          title: key,
-          field: key,
-          sorter: "string",
-        }));
+        const LINK_TAG = "[[LINK]]";
+        const cols = Object.keys(rows[0]).map((key) => {
+          const sample = rows[0][key];
+          if (typeof sample === "string" && sample.startsWith(LINK_TAG)) {
+            // Strip the sentinel tag from every row so Tabulator sees a clean URL
+            rows.forEach((r) => {
+              if (typeof r[key] === "string") r[key] = r[key].slice(LINK_TAG.length);
+            });
+            return { title: key, field: key, formatter: "link", formatterParams: { target: "_blank" } };
+          }
+          const isUrl =
+            typeof sample === "string" &&
+            (sample.startsWith("http://") || sample.startsWith("https://"));
+          return isUrl
+            ? { title: key, field: key, formatter: "link", formatterParams: { target: "_blank" } }
+            : { title: key, field: key, sorter: "string" };
+        });
         setColumns(cols);
       } else {
         setColumns([]);
       }
     } catch (err) {
-      console.error("Query error:", err);
+      setQueryError(err.message || err.toString() || "Unknown query error");
       setData([]);
       setColumns([]);
     }
@@ -206,8 +261,25 @@ export default function App() {
           <br />
 
           <hr />
+          {queryError && (
+            <pre
+              style={{
+                background: "#fee2e2",
+                border: "1px solid #f87171",
+                borderRadius: "6px",
+                color: "#991b1b",
+                padding: "12px 16px",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontSize: "13px",
+              }}
+            >
+              {queryError}
+            </pre>
+          )}
           {data.length > 0 && (
             <ReactTabulator
+              key={tableKey}
               data={data}
               columns={columns}
               layout="fitData"
