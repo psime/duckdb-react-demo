@@ -1,5 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import * as duckdb from "@duckdb/duckdb-wasm";
+
+// Tabulator's clearBindings() calls ResizeObserver.unobserve() without checking
+// whether the target is still a valid Element (detached nodes fail). Patch it once.
+if (typeof ResizeObserver !== "undefined") {
+  const _orig = ResizeObserver.prototype.unobserve;
+  ResizeObserver.prototype.unobserve = function (target) {
+    if (target instanceof Element) _orig.call(this, target);
+  };
+}
 import { ReactTabulator } from "react-tabulator";
 import QueryButton from "./QueryButton";
 import "tabulator-tables/dist/css/tabulator.min.css";
@@ -21,6 +30,17 @@ export default function App() {
   const [rowLimit, setRowLimit] = useState(1000);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [tableKey, setTableKey] = useState(0);
+  const tableRef = useRef(null);
+
+  // Stable options object — only recreated when tableKey changes (full remount on new query).
+  // paginationSize is seeded here but updated via the Tabulator API in the effect below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tableOptions = useMemo(() => ({
+    movableColumns: true,
+    resizableRows: true,
+    pagination: "local",
+    paginationSize: rowsPerPage,
+  }), [tableKey]);
 
   const DEBUG_MODE = false;
 
@@ -38,6 +58,13 @@ export default function App() {
   useEffect(() => {
     setQuery(`SELECT * FROM events LIMIT ${rowLimit};`);
   }, [rowLimit]);
+
+  // Update pagination size via Tabulator API to avoid triggering options-change recreation
+  useEffect(() => {
+    if (tableRef.current?.table) {
+      tableRef.current.table.setPageSize(rowsPerPage);
+    }
+  }, [rowsPerPage]);
 
   useEffect(() => {
     async function initDuckDB() {
@@ -121,7 +148,6 @@ export default function App() {
 
     let q = sql || query;
     setQueryError(null);
-    setTableKey((k) => k + 1);
 
     // Fetch any URLs used as FROM file sources via JS (DuckDB WASM can't make HTTP requests directly)
     // Only matches URLs in FROM clause position, not arbitrary string literals in SELECT/WHERE
@@ -145,7 +171,6 @@ export default function App() {
     try {
       const result = await dbConnection.query(q);
       const rows = result.toArray();
-      setData(rows);
 
       if (rows.length > 0) {
         const LINK_TAG = "[[LINK]]";
@@ -165,8 +190,12 @@ export default function App() {
             ? { title: key, field: key, formatter: "link", formatterParams: { target: "_blank" } }
             : { title: key, field: key, sorter: "string" };
         });
+        setTableKey((k) => k + 1);
+        setData(rows);
         setColumns(cols);
       } else {
+        setTableKey((k) => k + 1);
+        setData(rows);
         setColumns([]);
       }
     } catch (err) {
@@ -280,15 +309,11 @@ export default function App() {
           {data.length > 0 && (
             <ReactTabulator
               key={tableKey}
+              ref={tableRef}
               data={data}
               columns={columns}
               layout="fitData"
-              options={{
-                movableColumns: true,
-                resizableRows: true,
-                pagination: "local",
-                paginationSize: rowsPerPage,
-              }}
+              options={tableOptions}
             />
           )}
         </>
